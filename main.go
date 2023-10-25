@@ -147,14 +147,25 @@ func getResult(intervals []interval, lines []string, del bool) []string {
 	var ret []string
 	filterKeepMap := makeFilterKeepMap(intervals)
 
-	groupItems := []string{}
 	for i := 0; i < len(times); i++ {
 		t := times[i]
 		date := t.Format(layoutDate)
 		group := filterKeepMap[date]
 
-		// find all items of the current group
+		// find all items with the same date, and maybe keep them
+		sameDates := []string{}
 		for j := i + 1; j < len(times); j++ {
+			t := times[j]
+			ndate := t.Format(layoutDate)
+			if ndate != date {
+				break
+			}
+			sameDates = append(sameDates, lines[j])
+		}
+
+		// find all items of the current group
+		groupItems := []string{}
+		for j := i + len(sameDates) + 1; j < len(times); j++ {
 			t := times[j]
 			date := t.Format(layoutDate)
 			if ng := filterKeepMap[date]; group == ng {
@@ -164,24 +175,37 @@ func getResult(intervals []interval, lines []string, del bool) []string {
 			}
 		}
 
-		// keep the farthest item in the same group
-		if len(groupItems) > 0 {
-			if del {
+		if del {
+			if len(groupItems) > 0 {
+				// multiple items in a group, the last one should be kept
+				// e.g. 18, 19, 20 same group. delete 18 (not in groupItems)
 				ret = append(ret, lines[i])
-				if len(groupItems) > 1 {
-					ret = append(ret, groupItems[0:len(groupItems)-1]...)
-				}
-			} else {
+			}
+			if len(sameDates) > 0 && len(groupItems) > 0 {
+				// e.g. 18, 18, 19 same group. delete the second 18
+				ret = append(ret, sameDates...)
+			}
+			if len(groupItems) > 1 {
+				// e.g. 18, 19, 20 same group. delete 19. keep 20
+				ret = append(ret, groupItems[0:len(groupItems)-1]...)
+			}
+		} else {
+			if len(groupItems) == 0 {
+				// keep the only item
+				ret = append(ret, lines[i])
+			}
+			if len(sameDates) > 0 && len(groupItems) == 0 {
+				// keep all the items with the same dates, with lines[i]
+				// e.g. 18, 18. keep the second 18.
+				ret = append(ret, sameDates...)
+			}
+			if len(groupItems) > 0 {
+				// e.g. 18, 18, 19 same group. keep 19
 				ret = append(ret, groupItems[len(groupItems)-1])
 			}
-			i += len(groupItems)
-			groupItems = []string{}
-		} else {
-			// the only item in the group
-			if !del {
-				ret = append(ret, lines[i])
-			}
 		}
+
+		i += len(groupItems) + len(sameDates)
 	}
 
 	return ret
