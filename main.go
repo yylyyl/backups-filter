@@ -22,6 +22,8 @@ var (
 	fDescending    = flag.Bool("descending", false, "descending input and output")
 	fKeep          = flag.Bool("keep", false, "print the items which should be kept, "+
 		"instead of which should be deleted")
+
+	debug = false
 )
 
 func init() {
@@ -80,13 +82,14 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !*fDescending {
+	if *fDescending {
 		reverseStrings(lines)
 	}
 
-	ret := getResult(intervals, lines, !*fKeep)
+	t := time.Now()
+	ret := getResult(intervals, lines, t, !*fKeep)
 
-	if !*fDescending {
+	if *fDescending {
 		reverseStrings(ret)
 	}
 
@@ -102,13 +105,12 @@ type interval struct {
 
 // makeFilterKeepMap creates a map, key is the date, value is the group id.
 // For the same group id, only one date should be kept.
-func makeFilterKeepMap(intervals []interval) map[string]int {
+func makeFilterKeepMap(intervals []interval, t time.Time) map[string]int {
 	ret := make(map[string]int)
 	intvIndex := 0
 	intvCount := 0
 	intvDays := 0
 
-	t := time.Now()
 	group := 1
 	for {
 		if intvIndex >= len(intervals) {
@@ -117,6 +119,9 @@ func makeFilterKeepMap(intervals []interval) map[string]int {
 
 		intv := intervals[intvIndex]
 		ret[t.Format(layoutDate)] = group
+		if debug {
+			fmt.Fprintf(os.Stderr, "filterMap: %s %d\n", t.Format(layoutDate), group)
+		}
 		if intvCount < intv.count && intvDays%intv.days == 0 {
 			intvCount++
 			group++
@@ -133,7 +138,7 @@ func makeFilterKeepMap(intervals []interval) map[string]int {
 	return ret
 }
 
-func getResult(intervals []interval, lines []string, del bool) []string {
+func getResult(intervals []interval, lines []string, t time.Time, del bool) []string {
 	times := make([]time.Time, 0, len(lines))
 	for _, line := range lines {
 		t, err := time.Parse(*fLayout, line)
@@ -145,7 +150,7 @@ func getResult(intervals []interval, lines []string, del bool) []string {
 	}
 
 	var ret []string
-	filterKeepMap := makeFilterKeepMap(intervals)
+	filterKeepMap := makeFilterKeepMap(intervals, t)
 
 	for i := 0; i < len(times); i++ {
 		t := times[i]
@@ -175,33 +180,20 @@ func getResult(intervals []interval, lines []string, del bool) []string {
 			}
 		}
 
+		// e.g. 18, 18, 19, 19, 20 in the same group
+		// line[i] = 1st 18
+		// sameDates = [2nd 18]
+		// groupItems = [19, 19, 20]
+		// keep the oldest, and the same dates
+		// remove all the groupItems
 		if del {
 			if len(groupItems) > 0 {
-				// multiple items in a group, the last one should be kept
-				// e.g. 18, 19, 20 same group. delete 18 (not in groupItems)
-				ret = append(ret, lines[i])
-			}
-			if len(sameDates) > 0 && len(groupItems) > 0 {
-				// e.g. 18, 18, 19 same group. delete the second 18
-				ret = append(ret, sameDates...)
-			}
-			if len(groupItems) > 1 {
-				// e.g. 18, 19, 20 same group. delete 19. keep 20
-				ret = append(ret, groupItems[0:len(groupItems)-1]...)
+				ret = append(ret, groupItems...)
 			}
 		} else {
-			if len(groupItems) == 0 {
-				// keep the only item
-				ret = append(ret, lines[i])
-			}
-			if len(sameDates) > 0 && len(groupItems) == 0 {
-				// keep all the items with the same dates, with lines[i]
-				// e.g. 18, 18. keep the second 18.
+			ret = append(ret, lines[i])
+			if len(sameDates) > 0 {
 				ret = append(ret, sameDates...)
-			}
-			if len(groupItems) > 0 {
-				// e.g. 18, 18, 19 same group. keep 19
-				ret = append(ret, groupItems[len(groupItems)-1])
 			}
 		}
 
